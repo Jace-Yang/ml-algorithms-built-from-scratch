@@ -34,7 +34,7 @@ plt.show()
 ```
 
 
-![png](output_4_0.png)
+![png](./output/output_4_0.png)
 
 
 ### Principle component analysis
@@ -284,7 +284,7 @@ plt.show()
 ```
 
 
-![png](output_23_0.png)
+![png](./output/output_23_0.png)
 
 
 - From this plot, 3/4 components can give us about 80% varicance explained
