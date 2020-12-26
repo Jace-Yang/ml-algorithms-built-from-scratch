@@ -1,0 +1,87 @@
+---
+title: "人脸识别"
+author:
+  - 吴宇翀
+  - 2017310836
+  - wuyuchong.com
+documentclass: ctexart
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+classoption: "hyperref,"
+---
+
+```{r cache=TRUE}
+data = read.csv("data.csv", header=F)
+```
+
+```{r cache=TRUE}
+nrow(data)
+x <- seq(0,1, length=65)
+y <- seq(0,1, length=65)
+z <- matrix(0, 400, 64*64)
+par(mar=c(0.01, 0.01, 0.01, 0.01), mfrow=c(10,10), pin=c(0.6, 0.6)) 
+for(i in 1:400){
+    z1 <- as.numeric(data[i,])
+    z1 <- matrix(z1, nrow = 64)
+    z1 <- z1[, 64:1]
+    z[i, ] <- matrix(z1, nrow = 1)
+    z1 <- matrix(z1, nrow = 64)
+    # image(x, y, z1 , col=grey(seq(0, 1, length=256)), axes=FALSE)
+}
+```
+
+```{r cache=TRUE}
+x <- seq(0,1, length=65)
+y <- seq(0,1, length=65)
+z.cmeans <- colMeans(z) 
+z.center <- sweep(z, 2, z.cmeans, "-")
+par(mar=c(0.01, 0.01, 0.01, 0.01), mfrow=c(10,10),pin=c(0.6, 0.6)) 
+for( i in 1:400){
+    z1 <- z.center[i, ]
+    z1 <- matrix(z1, nrow = 64)
+    # image(x, y, z1 , col=grey(seq(0, 1, length=256)), axes=FALSE)
+}
+```
+
+```{r cache=TRUE}
+index1 <- matrix(TRUE, 10, 40)
+index1[1, ] <- FALSE
+index1 <- c(index1)
+
+z.tr <- z[index1, ]
+z.te <- z[!index1, ]
+#z.tr.scale <- scale(z.tr)
+z.tr.means <- colMeans(z.tr) 
+z.center <- sweep(z, 2, z.tr.means, "-")
+
+# Step 2: calculate covariance matrix
+z.tr.var <- cov(z.tr)
+eigs <- eigen(z.tr.var)
+```
+
+```{r cache=TRUE}
+k <- 64
+eigenvalues <- eigs$values
+eigenvectors <- eigs$vectors[,1:k, drop=FALSE]
+print(sum(eigenvalues[1:k])/sum(eigenvalues))
+#eigenvectors[,10]
+a <- 1:64
+eigen.sum <- rep(0, 64)
+for( i in 1:64){
+   eigen.sum[i] <- sum(eigenvalues[1:i])/sum(eigenvalues)
+}
+
+plot(a, eigen.sum,ylim = c(0,1))
+par(mfcol=c(4,4)) 
+k <- 16
+for( i in 1:k){
+    eigenvector <- eigenvectors[,i]
+    eigenvector <- matrix(eigenvector, nrow = 64)
+    image(x, y, eigenvector , col=grey(seq(0, 1, length=256)), 
+          axes=FALSE, xlab="", ylab="")
+}
+```
+

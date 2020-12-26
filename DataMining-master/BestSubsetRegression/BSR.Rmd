@@ -1,0 +1,387 @@
+---
+title: "BSR"
+output: html_document
+---
+
+```{r include=FALSE, echo=TRUE}
+library(knitr)
+library(reticulate)
+library(magrittr)
+use_python("/usr/local/bin/python3")
+py_config()
+```
+
+# 逐步讲解（Step by Step）
+
+## 包和数据导入
+
+```{python}
+import numpy as np
+from scipy import linalg
+import os
+```
+
+```{python}
+#os.chdir()
+x = np.loadtxt("./DataForRegression/x.txt", delimiter=",")
+y = np.loadtxt("./DataForRegression/y.txt", delimiter=",")
+```
+
+```{r}
+head(py$x) %>% 
+  as.data.frame() %>% 
+  kable(digits = 2, caption = "导入数据中的自变量（截取开头部分）")
+```
+
+```{r}
+head(py$y) %>% 
+  as.data.frame() %>% 
+  kable(digits = 2, caption = "导入数据中的因变量（截取开头部分）")
+```
+
+## 初始化
+
+```{python}
+intercept = True
+isCp=True
+isAIC=True
+isCV=True
+```
+
+n个观测，p个自变量
+
+```{python}
+n, p = x.shape
+```
+
+如果有截距项时，自变量左边加入一列1:
+
+```{python}
+if intercept:
+    x = np.c_[np.ones((n, 1)), x]
+else:
+    x = x
+```
+
+```{r}
+head(py$x) %>% 
+  as.data.frame() %>% 
+  kable(digits = 2, caption = "有截距项的自变量（截取开头部分）")
+```
+
+## 用递归法生成一个逻辑矩阵
+
+```{python}
+def turnbits_rec(p):
+    if(p==1):
+        return np.array([[True, False],[True, True]])
+    else:
+        tmp1 = np.c_[ turnbits_rec(p - 1), 
+                     np.array([False]*(2**(p - 1))).reshape((2**(p - 1), 1))] # Create False and then reshape.
+        tmp2 = np.c_[ turnbits_rec(p - 1), 
+                     np.array([True]*(2**(p - 1))).reshape((2**(p - 1), 1))] # Create True and then reshape.
+        return np.r_[tmp1, tmp2]
+ind_var = turnbits_rec(p)
+```
+
+```{r}
+head(py$ind_var) %>% 
+  as.data.frame() %>% 
+  kable(digits = 2, caption = "逻辑矩阵（截取开头部分）")
+```
+
+## 计算矩阵 *X转置* 分别与 *X* 和 *Y* 的乘积
+
+```{python}
+xtx = np.dot(x.T, x)
+xty = np.dot(x.T, y)
+b = [] # Regression Coefficients
+```
+
+## 基于交叉验证挑选最好的数据集
+
+### 系数名称
+
+```{python}
+names = np.array(['x' + str(i) for i in range(1, p+1)])
+names
+```
+
+### 数据分组
+
+n个观测：
+
+```{python}
+arrange = np.arange(0, n)
+arrange
+```
+
+打乱顺序：
+
+```{python}
+permutation = np.random.permutation(arrange)
+permutation
+```
+
+将它分为10个数组，放入一个列表之中。
+
+```{python}
+K = 10 # ten folds
+indices = np.array_split(permutation, K)
+indices # A list containing 10 arrays
+```
+
+```{r}
+py$indices
+```
+
+### 交叉验证
+
+```{python}
+# Performing Cross Validation
+def solve_sym(xtx, xty):
+    L = linalg.cholesky(xtx)
+    return linalg.lapack.dpotrs(L, xty)[0]
+    
+def cvk(ind, index): # "ind" is the index of the variables. "index" is the index of the index of the Kth fold.
+    txx = xtx[ind][:, ind] - np.dot((x[index][:, ind]).T, x[index][:, ind])
+    txy = xty[ind] - np.dot((x[index][:, ind]).T, y[index])
+    tcoe = solve_sym(txx, txy)
+    return np.sum((y[index] - np.dot(x[index][:, ind], tcoe))**2)
+        
+cverr = np.sum(np.array(
+    [[cvk(ind, index) for index in indices] for ind in ind_var])
+    , axis = 1)/n
+```
+
+上面这段可能有些难以理解，为了方便理解，我们做如下示例：
+
+*ind* 变量的索引， *index* 是交叉验证中第K组数据的索引
+
+在双层循环中，每一次取出了一个元组：
+
+```{python}
+for index in indices:
+    for ind in ind_var:
+        one = (ind, index)
+```
+
+于是，我们取出了最后一次循环的一个元祖：
+
+```{r}
+py$one
+```
+
+然后这个元组作为参数传入 *cvk* 函数，得到返回值：
+
+```{python}
+ind = one[0]
+index = one[1]
+txx = xtx[ind][:, ind] - np.dot((x[index][:, ind]).T, x[index][:, ind])
+txy = xty[ind] - np.dot((x[index][:, ind]).T, y[index])
+tcoe = solve_sym(txx, txy)
+outcome = (y[index] - np.dot(x[index][:, ind], tcoe))**2
+outcome
+np.sum(outcome)
+```
+
+以此类推，我们将 *index* 的循环放入同一行，每做一次 *ind* 的循环新加一行。
+
+```{python}
+table = np.array([[cvk(ind, index) for index in indices] for ind in ind_var])
+table
+np.shape(table)
+```
+
+即每一列是一折分组数据，每一行是一个回归子集，共256行：
+
+```{r}
+head(py$table) %>% 
+  as.data.frame() %>% 
+  kable(digits = 0, caption = "中间数据（截取开头部分）")
+```
+
+然后计算 *cverr*
+
+```{python}
+cverr = np.sum(table, axis = 1)/n
+np.shape(cverr)
+```
+
+现在，我们可以知道那一个子集是最优回归子集：
+
+```{python}
+min_id_CV = np.argmin(cverr)
+min_id_CV
+```
+
+然后输出其系数：
+
+```{python}
+if intercept:
+    sub_names_CV = np.insert(names[ind_var[min_id_CV][1:]], 0, 'mu')
+else:
+    sub_names_CV = names[ind_var[min_id_CV][1:]]
+b = [solve_sym(xtx[ind][:, ind], xty[ind]) for ind in ind_var]
+sub_beta_CV = b[min_id_CV]
+print('The best subset and coeffecients under CV:\n')
+print(dict(zip(sub_names_CV, sub_beta_CV)), '\n')
+```
+
+# 类及函数封装
+
+```{python}
+def solve_sym(xtx, xty):
+    L = linalg.cholesky(xtx)
+    return linalg.lapack.dpotrs(L, xty)[0] 
+```
+
+```{python}
+def turnbits_rec(p):
+    if(p==1):
+        return np.array([[True, False],[True, True]])
+    else:
+        tmp1 = np.c_[ turnbits_rec(p - 1), 
+                     np.array([False]*(2**(p - 1))).reshape((2**(p - 1), 1))] # Create False and then reshape.
+        tmp2 = np.c_[ turnbits_rec(p - 1), 
+                     np.array([True]*(2**(p - 1))).reshape((2**(p - 1), 1))] # Create True and then reshape.
+        return np.r_[tmp1, tmp2]
+```
+
+```{python}
+class BestSubsetRegress(object):
+    """BestSubsetRegression
+
+    A best subset regression based on Cp, AIC and cross validation.
+    
+    Attributes:
+        x: A ndarray data of dependent variable.
+        y: A ndarray data of independent variable.
+        intercept: A boolean indicating if intercept is included in data.
+        isCp: A boolean indicating if Cp is applied.
+        isAIC: A boolean indicating if AIC is applied.
+        isCV: A boolean indicating if cross validation is applied.
+    """
+    def __init__(self, x=0,  y=0, intercept=True, isCp=True, isAIC=True, isCV=True):
+        self.n, self.p = x.shape
+        if intercept:
+            self.x = np.c_[np.ones((self.n, 1)), x] # If intercept, then generize a column which is all 1
+        else:
+            self.x = x
+    
+        self.ind_var = turnbits_rec(self.p) # Generate the matrix using the pre-defined function
+        self.y = y
+        self.xtx = np.dot(self.x.T, self.x)
+        self.xty = np.dot(self.x.T, self.y)
+        self.b = [] # Regression Coefficients
+        
+        # Parameters
+        self.isCp = isCp
+        self.isAIC = isAIC
+        self.isCV = isCV
+        self.intercept = intercept
+        
+    # Calculate Regression Coefficients
+    def regress(self):
+        self.b = [solve_sym(self.xtx[ind][:, ind], self.xty[ind]) # "ind" is the index of the variables.
+                  for ind in self.ind_var]
+        return self.b
+    
+    # Calculate Cp and AIC statistics
+    def Cp_AIC(self):
+        self.b = BestSubsetRegress.regress(self)
+        mse = [np.sum(np.dot(self.xtx[ind][:, ind], b_)*b_) 
+               for ind, b_ in zip(self.ind_var, self.b)]
+        rss = np.dot(self.y, self.y) - mse
+        d = np.sum(self.ind_var, axis=1)
+        self.Cp = rss + 2*d*rss[-1]/(self.n - self.p - 1) 
+        self.AIC = self.n*np.log(rss) + 2*d
+        
+    # Performing Cross Validation
+    def cvreg(self):
+        K = 10
+        indices = np.array_split(np.random.permutation(np.arange(0, self.n)), K) # Split the datasets into K folds.
+    
+        def cvk(ind, index): # "ind" is the index of the variables. "index" is the index of the index of the Kth fold.
+            txx = self.xtx[ind][:, ind] - np.dot((self.x[index][:, ind]).T, 
+                                                 self.x[index][:, ind])
+            txy = self.xty[ind] - np.dot((self.x[index][:, ind]).T, 
+                                         self.y[index])
+            tcoe = solve_sym(txx, txy)
+            return np.sum(
+                (self.y[index] - np.dot(self.x[index][:, ind], tcoe))**2)
+        self.cverr = np.sum(np.array(
+            [[cvk(ind, index) for index in indices] 
+             for ind in self.ind_var]), axis = 1)/self.n
+        
+    
+    def bestsubsetregress(self):
+        self.names = np.array(['x' + str(i) for i in range(1, self.p+1)])
+        
+        if self.isCp or self.isAIC:
+            BestSubsetRegress.Cp_AIC(self)
+            
+        if self.isCp:
+            min_id_Cp = np.argmin(self.Cp)
+            if self.intercept:
+                sub_names_Cp = np.insert(self.names[self.ind_var[min_id_Cp][1:]], 0, 'mu')
+            else:
+                sub_names_Cp = self.names[self.ind_var[min_id_Cp][1:]]
+            sub_beta_Cp = self.b[min_id_Cp]
+            print('The best subset and coeffecients under Cp:\n')
+            print(dict(zip(sub_names_Cp, sub_beta_Cp)), '\n')
+            
+        if self.isAIC:
+            min_id_AIC = np.argmin(self.AIC)
+            if self.intercept:
+                sub_names_AIC = np.insert(self.names[self.ind_var[min_id_AIC][1:]], 0, 'mu')
+            else:
+                sub_names_AIC = self.names[self.ind_var[min_id_AIC][1:]]
+            sub_beta_AIC = self.b[min_id_AIC]
+            print('The best subset and coeffecients under AIC:\n')
+            print(dict(zip(sub_names_AIC, sub_beta_AIC)), '\n')
+            
+        if self.isCV:   
+            BestSubsetRegress.cvreg(self)
+            min_id_CV = np.argmin(self.cverr)
+            if self.intercept:
+                sub_names_CV = np.insert(self.names[self.ind_var[min_id_CV][1:]], 0, 'mu')
+            else:
+                sub_names_CV = self.names[self.ind_var[min_id_CV][1:]]
+            sub_beta_CV = self.b[min_id_CV]
+            print('The best subset and coeffecients under CV:\n')
+            print(dict(zip(sub_names_CV, sub_beta_CV)), '\n')
+```
+
+# 结果
+
+```{python}
+#os.chdir()
+x = np.loadtxt("./DataForRegression/x.txt", delimiter=",")
+y = np.loadtxt("./DataForRegression/y.txt", delimiter=",")
+regress = BestSubsetRegress(x, y)
+regress.bestsubsetregress()
+```
+
+# 运行指标
+
+所有模型的 Cp 统计量
+
+```{python}
+regress.Cp
+```
+
+所有模型的AIC
+
+```{python}
+regress.AIC
+```
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,160 @@
+---
+title: "DataMining"
+documentclass: ctexart
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+classoption: "hyperref,"
+---
+
+```{r}
+library(knitr)
+library(reticulate)
+library(tidyverse)
+use_python("/usr/local/bin/python3")
+py_config()
+```
+
+# Regression
+
+```{python}
+import numpy as np
+from scipy.stats import norm
+from source.sim import sim
+from source.scale import scale
+from scipy import linalg
+from source.solve_sym import solve_sym
+
+class PCRegression(object):
+    """Principal Component Regression
+
+    A Principal Component Regression and calculate Cp, AIC.
+    
+    Attributes:
+        x: A ndarray data of dependent variable.
+        y: A ndarray data of independent variable.
+        intercept: A boolean indicating if intercept is included in data.
+        isCp: A boolean indicating if Cp is applied.
+        isAIC: A boolean indicating if AIC is applied.
+        is.PCA: A boolean indicating if performing PCA before regression.
+        method: A selection between "normal" or SVD" method.
+        n_components: A number of how many components selected when performing PCA
+    """
+    def __init__(self, x=0,  y=0, intercept=True, isCp=True, isAIC=True, isPCA=True, method="SVD", n_components = 3):
+        self.n, self.p = x.shape
+        self.x = x
+        self.y = y
+        self.isCp = isCp
+        self.isAIC = isAIC
+        self.intercept = intercept
+        self.isPCA = isPCA
+        self.method = method
+        self.n_components = n_components
+        
+    # Principal Component Analysis (PCA)
+    def PCA(self):
+      x_scale, x_bar, x_std = scale(self.x)
+      x_cor = np.dot(x_scale.T, x_scale)/(self.n - 1)
+      if self.method=="SVD":
+          U,s,Vh = linalg.svd(x_scale/np.sqrt(self.n-1))
+          pc = np.dot(U[:,0:self.p], np.diag(s))*3
+      else:
+          eigva, eigve = linalg.eigh(x_cor)
+          pc = np.dot(x_scale, eigve)
+      self.x = pc[:,:self.n_components]
+        
+    # Calculate Regression Coefficients
+    def regress(self):
+        self.n, self.p = self.x.shape
+        if self.intercept:
+            self.x = np.c_[np.ones((self.n, 1)), self.x] # If intercept, then generize a column which is all 1
+            self.d = self.p + 1
+        else:
+            self.x = self.x
+            self.d = self.p
+        self.xtx = np.dot(self.x.T, self.x)
+        self.xty = np.dot(self.x.T, self.y)
+        self.b = solve_sym(self.xtx, self.xty)
+        return self.b
+    
+    # Calculate Cp and AIC statistics
+    def Cp_AIC(self):
+        self.b = PCRegression.regress(self)
+        mse = np.sum(np.dot(self.xtx, self.b)*self.b)
+        rss = np.dot(self.y, self.y) - mse
+        d = self.d
+        self.Cp = rss + 2*d*rss/(self.n - self.p - 1)
+        self.AIC = self.n*np.log(rss) + 2*d
+    
+    def main(self):
+        if self.isPCA:
+            PCRegression.PCA(self)
+            
+        if self.isCp or self.isAIC:
+            PCRegression.Cp_AIC(self)
+            
+        if self.isCp:
+            print("CP")
+            print(self.Cp)
+            
+        if self.isAIC:
+            print("AIC")
+            print(self.AIC)
+```
+
+# Gererate X and Y
+
+```{python}
+n = 1000
+p = 20
+rho = 0.75
+mu = norm.rvs(size=p, scale=1)
+x = sim(n, p, rho, mu)
+
+beta = np.ones(p)*0.01
+y = np.dot(x, beta) + norm.rvs(n)
+```
+
+# Comparasion between PCA Regression and Normal Regression
+
+## Normal Regression
+
+```{python}
+regress1 = PCRegression(x, y, isPCA=False)
+regress1.main()
+regress1.d
+```
+
+## PCA Regression with normal algorithom
+
+```{python}
+regress2 = PCRegression(x, y, isPCA=True, method="normal")
+regress2.main()
+regress2.d
+```
+
+## PCA Regression with SVD algorithom
+
+```{python}
+regress3 = PCRegression(x, y, isPCA=True, method="SVD")
+regress3.main()
+regress3.d
+```
+
+# Help
+
+```{r}
+sci = import("scipy.stats")
+np = import("numpy")
+# py_help(np$ones)
+```
+
+# Convert
+
+```{python}
+import ipyrmd
+ipyrmd.rmd_to_ipynb("convert.Rmd", "main.ipynb")
+```
+
