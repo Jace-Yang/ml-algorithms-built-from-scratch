@@ -1,4 +1,4 @@
-# Best Subset Regression Package
+# Best Subset Regression from scratch
 
 ## Output from the [notebook](BestSubsetRegClass.ipynb):
 
