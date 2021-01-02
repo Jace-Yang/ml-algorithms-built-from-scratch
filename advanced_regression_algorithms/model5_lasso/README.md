@@ -5,4 +5,4 @@ Another form of shrinkage that can be applied to the OLS problem is the Lasso. I
 However, unlike the previous models, no closed-form solution exists due to the fact that the loss function is no longer continuously differentiable (non-smooth absolute component). Thus, discrete optimization techniques are needed to solve for the parameter estimates. Numerous algorithms, such as the LARS (Least Angle Regression) algorithm and the Forward Stepwise regression algorithm have been developed to solve the Lasso, however the Pathwise Coordinate Descent algorithm is leveraged here. 
 
 
-![png](output_12_0.png)
+![png](./image/output_12_0.png)
